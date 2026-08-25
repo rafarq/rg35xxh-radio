@@ -885,6 +885,30 @@ for _language, _playlist_bundle in _PLAYLIST_TRANSLATIONS.items():
     TRANSLATIONS[_language].update(_playlist_bundle)
 
 
+# Home dashboard copy is kept separate from the larger locale bundles above
+# so the visual card treatment has one compact, auditable translation set.
+_HOME_TRANSLATIONS: Dict[str, Dict[str, str]] = {
+    "en": {"home_card_favorites_description": "Your saved stations", "home_card_categories_description": "Browse by genre", "home_card_recents_description": "Continue listening", "home_card_settings_description": "Tune your radio", "footer_home_move": "Move", "footer_home_open": "Open", "footer_home_quit": "Quit"},
+    "es": {"home_card_favorites_description": "Tus emisoras guardadas", "home_card_categories_description": "Explora por género", "home_card_recents_description": "Sigue escuchando", "home_card_settings_description": "Ajusta tu radio", "footer_home_move": "Mover", "footer_home_open": "Abrir", "footer_home_quit": "Salir"},
+    "zh-Hans": {"home_card_favorites_description": "已保存的电台", "home_card_categories_description": "按类型浏览", "home_card_recents_description": "继续收听", "home_card_settings_description": "调整收音机", "footer_home_move": "移动", "footer_home_open": "打开", "footer_home_quit": "退出"},
+    "hi": {"home_card_favorites_description": "आपके सहेजे स्टेशन", "home_card_categories_description": "शैली से ब्राउज़ करें", "home_card_recents_description": "सुनना जारी रखें", "home_card_settings_description": "रेडियो समायोजित करें", "footer_home_move": "चलें", "footer_home_open": "खोलें", "footer_home_quit": "बाहर"},
+    "fr": {"home_card_favorites_description": "Vos stations enregistrées", "home_card_categories_description": "Parcourir par genre", "home_card_recents_description": "Continuer l'écoute", "home_card_settings_description": "Réglez votre radio", "footer_home_move": "Déplacer", "footer_home_open": "Ouvrir", "footer_home_quit": "Quitter"},
+    "ar": {"home_card_favorites_description": "محطاتك المحفوظة", "home_card_categories_description": "تصفح حسب النوع", "home_card_recents_description": "تابع الاستماع", "home_card_settings_description": "اضبط الراديو", "footer_home_move": "تنقل", "footer_home_open": "فتح", "footer_home_quit": "خروج"},
+    "bn": {"home_card_favorites_description": "আপনার সংরক্ষিত স্টেশন", "home_card_categories_description": "ধরন অনুযায়ী দেখুন", "home_card_recents_description": "শোনা চালিয়ে যান", "home_card_settings_description": "রেডিও সাজান", "footer_home_move": "সরান", "footer_home_open": "খুলুন", "footer_home_quit": "প্রস্থান"},
+    "pt": {"home_card_favorites_description": "Suas rádios salvas", "home_card_categories_description": "Navegue por gênero", "home_card_recents_description": "Continue ouvindo", "home_card_settings_description": "Ajuste seu rádio", "footer_home_move": "Mover", "footer_home_open": "Abrir", "footer_home_quit": "Sair"},
+    "ru": {"home_card_favorites_description": "Сохранённые станции", "home_card_categories_description": "Обзор по жанрам", "home_card_recents_description": "Продолжить слушать", "home_card_settings_description": "Настройте радио", "footer_home_move": "Выбор", "footer_home_open": "Открыть", "footer_home_quit": "Выход"},
+    "ur": {"home_card_favorites_description": "آپ کے محفوظ اسٹیشن", "home_card_categories_description": "صنف کے لحاظ سے دیکھیں", "home_card_recents_description": "سننا جاری رکھیں", "home_card_settings_description": "ریڈیو ترتیب دیں", "footer_home_move": "حرکت", "footer_home_open": "کھولیں", "footer_home_quit": "باہر"},
+    "id": {"home_card_favorites_description": "Stasiun tersimpan Anda", "home_card_categories_description": "Jelajahi berdasarkan genre", "home_card_recents_description": "Lanjut mendengarkan", "home_card_settings_description": "Atur radio Anda", "footer_home_move": "Pindah", "footer_home_open": "Buka", "footer_home_quit": "Keluar"},
+    "de": {"home_card_favorites_description": "Ihre gespeicherten Sender", "home_card_categories_description": "Nach Genre stöbern", "home_card_recents_description": "Weiterhören", "home_card_settings_description": "Radio einstellen", "footer_home_move": "Bewegen", "footer_home_open": "Öffnen", "footer_home_quit": "Beenden"},
+    "ja": {"home_card_favorites_description": "保存した放送局", "home_card_categories_description": "ジャンルで探す", "home_card_recents_description": "続きを聴く", "home_card_settings_description": "ラジオを調整", "footer_home_move": "移動", "footer_home_open": "開く", "footer_home_quit": "終了"},
+    "tr": {"home_card_favorites_description": "Kaydettiğiniz istasyonlar", "home_card_categories_description": "Türe göre göz at", "home_card_recents_description": "Dinlemeye devam et", "home_card_settings_description": "Radyoyu ayarla", "footer_home_move": "Taşı", "footer_home_open": "Aç", "footer_home_quit": "Çık"},
+    "ko": {"home_card_favorites_description": "저장한 방송국", "home_card_categories_description": "장르별로 탐색", "home_card_recents_description": "계속 듣기", "home_card_settings_description": "라디오 조정", "footer_home_move": "이동", "footer_home_open": "열기", "footer_home_quit": "종료"},
+}
+
+for _language, _home_bundle in _HOME_TRANSLATIONS.items():
+    TRANSLATIONS[_language].update(_home_bundle)
+
+
 def _canonicalize(raw: str) -> Optional[str]:
     """Turn a POSIX-ish locale string into a bare ``lang`` or ``lang_REGION`` token.
 

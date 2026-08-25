@@ -51,10 +51,14 @@ CARD_COUNT = 4
 CARD_WIDTH = 136
 CARD_HEIGHT = 280
 CARD_GAP = 16
-CARD_TOP = LIST_TOP + 8
+CARD_TOP = 88
 CARD_RADIUS = 18
 ICON_TOP_MARGIN = 30
 ICON_SIZE = 64
+HOME_SELECTED_BORDER = (244, 197, 66)
+HOME_SELECTED_GLOW = (78, 62, 29)
+HOME_CARD_INNER = (31, 36, 48)
+HOME_FOOTER_BG = (15, 18, 27)
 
 # Languages whose script reads right-to-left: on-screen text for these
 # is right-aligned instead of the default left alignment.
@@ -128,6 +132,34 @@ def _draw_header(draw: ImageDraw.ImageDraw, title: str, subtitle: str = "", rtl:
             )
         else:
             draw.text((16, 34), subtitle, fill=DIM_COLOR, font=subtitle_font)
+
+
+def _draw_radio_mark(draw: ImageDraw.ImageDraw, x: int, y: int) -> None:
+    """Draw the compact radio brand mark in code, without an asset file."""
+    gold = HOME_SELECTED_BORDER
+    draw.rounded_rectangle([(x, y), (x + 34, y + 30)], radius=7, fill=(27, 32, 43), outline=gold, width=2)
+    draw.line([(x + 8, y + 9), (x + 26, y + 4)], fill=gold, width=2)
+    draw.ellipse([(x + 8, y + 14), (x + 14, y + 20)], fill=gold)
+    draw.line([(x + 19, y + 17), (x + 28, y + 17)], fill=ACCENT_COLOR, width=2)
+    draw.line([(x + 19, y + 22), (x + 25, y + 22)], fill=ACCENT_COLOR, width=2)
+
+
+def _draw_home_brand(draw: ImageDraw.ImageDraw, app: RadioApp, rtl: bool) -> None:
+    """Home-only brand area; other screens retain their established header."""
+    draw.rectangle([(0, 0), (WIDTH, 76)], fill=(15, 18, 27))
+    if rtl:
+        mark_x = WIDTH - 58
+        text_right = mark_x - 12
+        title_font, subtitle_font = _font(25), _font(14)
+        title, subtitle = app.t("app_title"), app.t("home_subtitle")
+        draw.text((text_right - _text_width(draw, title, title_font), 14), title, fill=FG_COLOR, font=title_font)
+        draw.text((text_right - _text_width(draw, subtitle, subtitle_font), 42), subtitle, fill=DIM_COLOR, font=subtitle_font)
+    else:
+        _draw_radio_mark(draw, 28, 20)
+        draw.text((76, 14), app.t("app_title"), fill=FG_COLOR, font=_font(25))
+        draw.text((76, 42), app.t("home_subtitle"), fill=DIM_COLOR, font=_font(14))
+        return
+    _draw_radio_mark(draw, mark_x, 20)
 
 
 def _scroll_window(selected_index: int, total: int, visible: int) -> int:
@@ -249,47 +281,107 @@ def _text_center(draw: ImageDraw.ImageDraw, cx: int, y: int, text: str, font, fi
 
 def _home_card_specs(app: RadioApp):
     return (
-        ("favorites", app.t("home_card_favorites"), _draw_star_icon, FAVORITE_COLOR, f"{len(app.favorites)}"),
-        ("categories", app.t("home_card_categories"), _draw_grid_icon, ACCENT_COLOR, f"{len(app.groups)}"),
-        ("recents", app.t("home_card_recents"), _draw_clock_icon, ACCENT_COLOR, f"{len(app.recents)}"),
-        ("settings", app.t("home_card_settings"), _draw_gear_icon, ACCENT_COLOR, SUPPORTED_LANGUAGES.get(app.language, "")),
+        ("favorites", app.t("home_card_favorites"), app.t("home_card_favorites_description"), _draw_star_icon, FAVORITE_COLOR, f"{len(app.favorites)}"),
+        ("categories", app.t("home_card_categories"), app.t("home_card_categories_description"), _draw_grid_icon, ACCENT_COLOR, f"{len(app.groups)}"),
+        ("recents", app.t("home_card_recents"), app.t("home_card_recents_description"), _draw_clock_icon, ACCENT_COLOR, f"{len(app.recents)}"),
+        ("settings", app.t("home_card_settings"), app.t("home_card_settings_description"), _draw_gear_icon, ACCENT_COLOR, SUPPORTED_LANGUAGES.get(app.language, "")),
     )
+
+
+def _draw_home_pill(draw: ImageDraw.ImageDraw, cx: int, y: int, text: str, is_settings: bool) -> None:
+    font = _font(10)
+    prefix_width = 16 if is_settings else 0
+    pill_width = min(CARD_WIDTH - 22, int(_text_width(draw, text, font)) + prefix_width + 20)
+    x0 = cx - pill_width // 2
+    draw.rounded_rectangle([(x0, y), (x0 + pill_width, y + 24)], radius=12, fill=(18, 22, 31), outline=(56, 65, 82))
+    if is_settings:
+        globe_x, globe_y = x0 + 12, y + 12
+        draw.ellipse([(globe_x - 5, globe_y - 5), (globe_x + 5, globe_y + 5)], outline=ACCENT_COLOR, width=1)
+        draw.line([(globe_x - 5, globe_y), (globe_x + 5, globe_y)], fill=ACCENT_COLOR)
+        draw.line([(globe_x, globe_y - 5), (globe_x, globe_y + 5)], fill=ACCENT_COLOR)
+    _text_center(draw, cx + (prefix_width // 2 if is_settings else 0), y + 6, text, font, DIM_COLOR)
+
+
+def _draw_home_description(draw: ImageDraw.ImageDraw, cx: int, y: int, text: str) -> None:
+    """Keep localized card copy within a card, using at most two short lines."""
+    font = _font(11)
+    max_width = CARD_WIDTH - 18
+    if _text_width(draw, text, font) <= max_width:
+        _text_center(draw, cx, y, text, font, DIM_COLOR)
+        return
+    words = text.split()
+    lines = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and _text_width(draw, candidate, font) > max_width:
+            lines.append(current)
+            current = word
+            if len(lines) == 1:
+                break
+        else:
+            current = candidate
+    if not lines:
+        lines.append("")
+    remainder = " ".join(words[len(lines[0].split()):]) if words else text
+    while remainder and _text_width(draw, remainder + "…", font) > max_width:
+        remainder = remainder[:-1]
+    lines = [lines[0], (remainder + "…") if remainder and remainder != text else remainder]
+    for line_index, line in enumerate(line for line in lines if line):
+        _text_center(draw, cx, y + line_index * 13, line, font, DIM_COLOR)
+
+
+def _draw_home_footer(draw: ImageDraw.ImageDraw, app: RadioApp, rtl: bool) -> None:
+    draw.rectangle([(0, HEIGHT - 48), (WIDTH, HEIGHT)], fill=HOME_FOOTER_BG)
+    hints = (("◄►", app.t("footer_home_move")), ("A", app.t("footer_home_open")), ("≡", app.t("footer_home_quit")))
+    if rtl:
+        hints = tuple(reversed(hints))
+    x = 30
+    for symbol, label in hints:
+        draw.ellipse([(x, HEIGHT - 36), (x + 22, HEIGHT - 14)], fill=(36, 42, 55), outline=(76, 86, 106))
+        _text_center(draw, x + 11, HEIGHT - 32, symbol, _font(10), FG_COLOR)
+        draw.text((x + 30, HEIGHT - 33), label, fill=DIM_COLOR, font=_font(12))
+        x += 202
 
 
 def render_home(app: RadioApp) -> Image.Image:
     frame = _new_frame()
     draw = ImageDraw.Draw(frame)
     rtl = _is_rtl(app.language)
-    _draw_header(draw, app.t("app_title"), app.t("home_subtitle"), rtl=rtl)
+    _draw_home_brand(draw, app, rtl)
 
     specs = _home_card_specs(app)
     total_width = CARD_COUNT * CARD_WIDTH + (CARD_COUNT - 1) * CARD_GAP
     start_x = (WIDTH - total_width) // 2
 
-    for index, (_, label, icon_fn, color, count_text) in enumerate(specs):
+    for index, (name, label, description, icon_fn, color, count_text) in enumerate(specs):
         x0 = start_x + index * (CARD_WIDTH + CARD_GAP)
         y0 = CARD_TOP
         x1 = x0 + CARD_WIDTH
         y1 = y0 + CARD_HEIGHT
         is_selected = index == app.home_index
 
-        bg = SELECTED_BG if is_selected else CARD_BG
-        border = color if is_selected else CARD_BORDER_DIM
-        border_width = 5 if is_selected else 2
+        # The dark outer ring is a deliberately restrained selection glow.
+        if is_selected:
+            draw.rounded_rectangle([(x0 - 4, y0 - 4), (x1 + 4, y1 + 4)], radius=CARD_RADIUS + 3, outline=HOME_SELECTED_GLOW, width=3)
+        bg = (27, 32, 43) if is_selected else CARD_BG
+        border = HOME_SELECTED_BORDER if is_selected else CARD_BORDER_DIM
+        border_width = 3 if is_selected else 2
         draw.rounded_rectangle(
             [(x0, y0), (x1, y1)], radius=CARD_RADIUS, fill=bg, outline=border, width=border_width
         )
+        draw.rounded_rectangle([(x0 + 6, y0 + 6), (x1 - 6, y1 - 6)], radius=CARD_RADIUS - 5, outline=HOME_CARD_INNER, width=1)
 
         cx = (x0 + x1) // 2
         icon_cy = y0 + ICON_TOP_MARGIN + ICON_SIZE // 2
         icon_fn(draw, cx, icon_cy, ICON_SIZE, color)
 
-        label_color = color if is_selected else FG_COLOR
-        _text_center(draw, cx, icon_cy + ICON_SIZE // 2 + 22, label, _font(16), label_color)
-        if count_text:
-            _text_center(draw, cx, icon_cy + ICON_SIZE // 2 + 48, count_text, _font(13), DIM_COLOR)
+        label_color = HOME_SELECTED_BORDER if is_selected else FG_COLOR
+        _text_center(draw, cx, icon_cy + ICON_SIZE // 2 + 20, label, _font(16), label_color)
+        _draw_home_description(draw, cx, icon_cy + ICON_SIZE // 2 + 46, description)
+        _draw_home_pill(draw, cx, y1 - 42, count_text, name == "settings")
 
-    _draw_footer(draw, app.t("footer_home"), rtl=rtl)
+    _draw_home_footer(draw, app, rtl)
     return frame
 
 

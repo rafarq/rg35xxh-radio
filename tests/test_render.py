@@ -96,6 +96,71 @@ def _settings_app(*, language="en", sources=(DEFAULT_SOURCE,), status="default",
     )
 
 
+def _home_app(*, language="en", home_index=0):
+    return SimpleNamespace(
+        language=language,
+        home_index=home_index,
+        favorites=("one", "two"),
+        groups=("News", "Music", "Talk"),
+        recents=("one",),
+        t=lambda key, **kwargs: t(key, language, **kwargs),
+    )
+
+
+def test_home_dashboard_is_a_complete_640x480_four_card_layout(monkeypatch):
+    app = _home_app()
+    labels = []
+    monkeypatch.setattr(
+        render,
+        "_text_center",
+        lambda draw, cx, y, text, font, fill: labels.append(text),
+    )
+
+    frame = render.render_home(app)
+
+    assert frame.size == (render.WIDTH, render.HEIGHT) == (640, 480)
+    assert [spec[0] for spec in render._home_card_specs(app)] == [
+        "favorites", "categories", "recents", "settings"
+    ]
+    assert all(app.t(key) in labels for key in (
+        "home_card_favorites", "home_card_categories", "home_card_recents",
+        "home_card_settings", "home_card_favorites_description",
+        "home_card_categories_description", "home_card_recents_description",
+    ))
+    assert app.t("home_card_settings_description") in labels
+    assert {"2", "3", "1", "English"} <= set(labels)
+
+
+def test_home_selected_card_uses_gold_border_and_glow():
+    app = _home_app(home_index=1)
+    frame = render.render_home(app)
+    start_x = (render.WIDTH - (render.CARD_COUNT * render.CARD_WIDTH + (render.CARD_COUNT - 1) * render.CARD_GAP)) // 2
+    selected_x = start_x + render.CARD_WIDTH + render.CARD_GAP
+
+    assert frame.getpixel((selected_x, render.CARD_TOP + render.CARD_RADIUS)) == render.HOME_SELECTED_BORDER
+    assert frame.getpixel((selected_x - 3, render.CARD_TOP + render.CARD_RADIUS)) == render.HOME_SELECTED_GLOW
+
+
+@pytest.mark.parametrize("language", ["es", "ar"])
+def test_home_localizes_descriptions_and_renders_rtl_without_overflow(monkeypatch, language):
+    app = _home_app(language=language, home_index=3)
+    labels = []
+    monkeypatch.setattr(
+        render,
+        "_text_center",
+        lambda draw, cx, y, text, font, fill: labels.append(text),
+    )
+
+    frame = render.render_home(app)
+
+    assert frame.size == (640, 480)
+    assert all(app.t(key) in labels for key in (
+        "home_card_favorites_description", "home_card_categories_description",
+        "home_card_recents_description", "home_card_settings_description",
+    ))
+    assert render._is_rtl(language) is (language == "ar")
+
+
 def test_settings_menu_has_playlist_language_and_credits_in_order(monkeypatch):
     app = _settings_app()
     captured = {}
