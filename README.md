@@ -6,6 +6,26 @@ Internet radio application for the **Anbernic RG35XX H** console running
 **MuOS**. Browse the included M3U playlist, play stations, and keep favorites,
 recent stations, and configuration on the SD card.
 
+## Interface previews
+
+All screenshots below are native 640×480 frames rendered by the application in English.
+
+### Home
+
+![Home screen](assets/screenshots/home-en.png)
+
+### Home — Settings selected
+
+![Home screen with Settings selected](assets/screenshots/home-settings-en.png)
+
+### Settings
+
+![Settings screen](assets/screenshots/settings-en.png)
+
+### Credits
+
+![Credits screen](assets/screenshots/credits-en.png)
+
 ## Installation on MuOS
 
 Copy the project files to the SD card using this structure:
