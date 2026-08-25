@@ -130,3 +130,37 @@ def test_playlist_picker_renders_source_kinds_status_and_rtl(monkeypatch):
         t("playlist_source_local", "ar", name="Shared.M3U"),
         t("playlist_source_remote", "ar", url="https://example.test/shared.m3u"),
     ]
+
+
+def test_credits_render_every_verified_link_in_a_640x480_rtl_frame(monkeypatch):
+    app = _settings_app(language="ar")
+    app.settings_view = SettingsView.CREDITS
+    frame = render.render_settings(app)
+    captured = []
+
+    class DrawRecorder:
+        def text(self, position, text, **kwargs):
+            captured.append((position, text))
+
+    monkeypatch.setattr(render, "_draw_header", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render, "_draw_footer", lambda *args, **kwargs: None)
+    monkeypatch.setattr(render, "_font", lambda size: size)
+    monkeypatch.setattr(render, "_text_width", lambda draw, text, font: len(text))
+
+    render._render_settings_credits(app, DrawRecorder(), rtl=True)
+
+    expected = [
+        "Rafael Roa",
+        "https://rafarq.com",
+        "https://github.com/rafarq",
+        "https://www.linkedin.com/in/rafaroa",
+        "https://www.instagram.com/r4f4r04",
+        "https://www.threads.net/@r4f4r04",
+        "https://mastodon.cloud/@rafarq",
+    ]
+    rendered = [text for _, text in captured]
+    assert frame.size == (640, 480)
+    assert all(any(link in rendered_text for rendered_text in rendered) for link in expected)
+    assert all(any(label in rendered_text for rendered_text in rendered) for label, _ in render.CREDITS_SOCIAL_LINKS)
+    assert all(position[0] == render.WIDTH - 20 - len(text) for position, text in captured)
+    assert max(position[1] for position, _ in captured) < render.HEIGHT - render.FOOTER_HEIGHT

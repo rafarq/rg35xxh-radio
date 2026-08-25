@@ -62,6 +62,13 @@ RTL_LANGUAGES = {"ar", "ur"}
 
 CREDITS_NAME = "Rafael Roa"
 CREDITS_URL = "https://rafarq.com"
+CREDITS_SOCIAL_LINKS = (
+    ("GitHub", "https://github.com/rafarq"),
+    ("LinkedIn", "https://www.linkedin.com/in/rafaroa"),
+    ("Instagram", "https://www.instagram.com/r4f4r04"),
+    ("Threads", "https://www.threads.net/@r4f4r04"),
+    ("Mastodon", "https://mastodon.cloud/@rafarq"),
+)
 
 _font_cache: dict = {}
 
@@ -505,9 +512,9 @@ def _render_settings_credits(app: RadioApp, draw: ImageDraw.ImageDraw, rtl: bool
         app.t("app_title"),
         app.t("credits_created_by", name=CREDITS_NAME),
         CREDITS_URL,
-        app.t("credits_social_profiles", url=CREDITS_URL),
+        *(f"{label}  {url}" for label, url in CREDITS_SOCIAL_LINKS),
     ]
-    fonts = [_font(22), _font(16), _font(16), _font(16)]
+    fonts = [_font(22), *[_font(16)] * (len(lines) - 1)]
     y = LIST_TOP
     for line, font in zip(lines, fonts):
         if rtl:
