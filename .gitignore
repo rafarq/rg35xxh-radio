@@ -1,0 +1,56 @@
+# Local engine probing scratch space, not part of the app package.
+/.engine-probe/
+
+# Packaged ffmpeg-aarch64 binary: not vendored/committed (see
+# THIRD_PARTY_NOTICES.md and radio/engine/README.md); added to the
+# release/SD-card image separately.
+radio/engine/ffmpeg-aarch64
+!radio/engine/README.md
+
+# Python cache / bytecode.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test / coverage runtime artifacts.
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Host/editor files.
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local virtualenvs.
+.venv/
+venv/
+
+# Runtime-generated persistence data (favorites/recents/config written by
+# the app on the device). The shipped playlist and CA bundle are source
+# assets, not runtime output, so they are explicitly kept.
+radio/data/favorites.json
+radio/data/recent.json
+radio/data/config.json
+radio/data/playlist-cache/
+radio/log.txt
+!radio/data/playlist.m3u
+!radio/assets/cacert.pem
+
+# Local deployment credentials and secrets. Keep the public CA bundle above.
+.env
+.env.*
+!.env.example
+.ssh/
+id_rsa
+id_ecdsa
+id_ed25519
+*.key
+*.p12
+*.pfx
+*.deploy
+deploy.env
