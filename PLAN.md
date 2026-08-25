@@ -1,188 +1,177 @@
-# Plan de implementación — RG35XX H Radio-Stream App
+# Implementation Plan — RG35XX H Radio-Stream App
 
-Este documento es el plan técnico. No contiene código ni pasos de instalación en la máquina de
-desarrollo; describe qué se construirá, en qué orden y cómo se validará en el dispositivo real.
-Los puntos marcados **[POR VERIFICAR]** requieren confirmación en el RG35XX H antes de darlos por
-cerrados.
+This document is the technical plan. It contains no code or development-machine installation steps;
+it describes what will be built, in what order, and how it will be validated on the real device.
+Items marked **[TO VERIFY]** require confirmation on the RG35XX H before they can be considered
+complete.
 
-## 0. Decisión clave: motor de reproducción bundleado
+## 0. Key decision: bundled playback engine
 
-Dado que ningún reproductor del firmware es utilizable (ver REQUISITOS.md §3), el requisito
-central del proyecto es empaquetar un motor de audio AArch64 aislado, con su propia pila TLS,
-dentro de `/mnt/mmc/Roms/APPS/radio/engine/`.
+Because none of the firmware media players is usable (see REQUISITOS.md §3), the project's core
+requirement is to package an isolated AArch64 audio engine, with its own TLS stack, inside
+`/mnt/mmc/Roms/APPS/radio/engine/`.
 
-Candidatos a evaluar, en orden de preferencia pragmático:
+Candidates to evaluate, in pragmatic order of preference:
 
-1. **Binario estático de `ffmpeg`/`ffprobe` para AArch64 (linux-arm64, static build)**, invocado
-   como subproceso vía `ffmpeg -> pipe PCM -> ALSA` o directamente `ffmpeg` con salida `alsa`.
-   Ventaja: build estático incluye su propio OpenSSL/GnuTLS y demuxers (mp3, aac, hls) sin
-   depender de Pango (el fallo del sistema es de una dependencia de *filtros de subtítulos/UI*,
-   irrelevante para audio puro sin overlay de texto). Es la opción más simple de aislar: un solo
-   binario, sin libs de sistema.
-2. **`libmpv` estático o `mpv` estático para AArch64**, controlado vía `python-mpv` (JSON IPC) en
-   vez del `mpv` roto del firmware. Ventaja: mejor manejo nativo de HLS y reconexión. Requiere
-   validar que el build estático no reintroduzca el mismo problema de símbolos OpenSSL 1.1 que
-   el mpv del firmware (por eso se descarta el `mpv` del sistema, no el concepto de mpv).
-3. Fallback: `mpg123`/`faad2`/parser HLS a mano — descartado salvo que 1 y 2 fallen, por el coste
-   de reimplementar demuxing HLS.
+1. **Static `ffmpeg`/`ffprobe` binary for AArch64 (linux-arm64, static build)**, invoked as a
+   subprocess through `ffmpeg -> PCM pipe -> ALSA` or directly with `ffmpeg`'s `alsa` output.
+   Advantage: a static build includes its own OpenSSL/GnuTLS and demuxers (mp3, aac, hls), without
+   relying on Pango (the system failure is in a *subtitle/UI filter* dependency, which is irrelevant
+   for pure audio with no text overlay). It is the simplest option to isolate: one binary, no system
+   libraries.
+2. **Static `libmpv` or `mpv` for AArch64**, controlled through `python-mpv` (JSON IPC) instead of
+   the broken firmware `mpv`. Advantage: better native HLS handling and reconnection. It requires
+   verifying that the static build does not reintroduce the same OpenSSL 1.1 symbol issue as the
+   firmware mpv (that is why the system `mpv` is rejected, not the concept of mpv).
+3. Fallback: manual `mpg123`/`faad2`/HLS parser — rejected unless options 1 and 2 fail, due to the
+   cost of reimplementing HLS demuxing.
 
-**Elección para el plan de trabajo:** empezar por (1), ffmpeg estático AArch64 como subproceso,
-por ser el camino de menor riesgo (un solo binario, formatos ya cubiertos, TLS propio). Se deja
-(2) como plan B documentado si en pruebas reales el arranque/latencia de `ffmpeg` por subprocess
-resulta pobre para cambios rápidos de emisora.
+**Working-plan choice:** start with option 1, static AArch64 ffmpeg as a subprocess, because it is
+the lowest-risk path (one binary, formats already covered, its own TLS). Option 2 remains a documented
+Plan B if real tests show that ffmpeg subprocess startup/latency is poor when changing stations quickly.
 
-**[VERIFICADO]** en el dispositivo: un binario estático de ffmpeg 9.0.1 AArch64 se ejecuta
-correctamente (el mismatch de ELF era propio del `ffplay` de vendor, no de la arquitectura/kernel
-del dispositivo) y decodifica streams MP3, AAC y HLS reales del playlist con verificación TLS
-activa, siempre que `SSL_CERT_FILE` apunte al `cacert.pem` bundleado (ver REQUISITOS.md §3).
+**[VERIFIED]** on the device: a static AArch64 ffmpeg 9.0.1 binary runs correctly (the ELF mismatch
+was specific to the vendor `ffplay`, not the device architecture/kernel) and decodes real MP3, AAC,
+and HLS streams from the playlist with active TLS verification, provided `SSL_CERT_FILE` points to the
+bundled `cacert.pem` (see REQUISITOS.md §3).
 
-**[VERIFICADO]** ese mismo binario fue compilado sin el muxer de salida `alsa`
-("Requested output format alsa is not known."), así que no puede emitir audio por ALSA
-directamente. La arquitectura de reproducción final usa **dos** subprocesos por emisora, ambos
-lanzados como listas de argumentos (`shell=False`), nunca una pipeline de shell: el ffmpeg
-bundleado decodifica la URL a PCM crudo (44.1kHz estéreo s16le) por `pipe:1`, y el `aplay` del
-sistema recibe ese PCM por stdin — con flags de formato explícitos que coinciden exactamente con
-la salida del decoder — y lo reproduce por ALSA. Los dos procesos se conectan mediante una pipe
-de sistema operativo pasada directamente a `Popen` (`stdout` del decoder como `stdin` del
-reproductor), y sus ciclos de vida se gestionan juntos (`terminate()` → timeout → `kill()` →
-`wait()` de ambos) para no dejar zombies ni pipes/sockets abiertos al cambiar de emisora.
+**[VERIFIED]** that same binary was built without the `alsa` output muxer
+("Requested output format alsa is not known."), so it cannot output audio directly through ALSA.
+The final playback architecture uses **two** subprocesses per station, both launched as argument lists
+(`shell=False`), never as a shell pipeline: the bundled ffmpeg decodes the URL to raw PCM (44.1 kHz
+stereo s16le) on `pipe:1`, and the system `aplay` receives that PCM on stdin—with explicit format flags
+that exactly match the decoder output—and plays it through ALSA. The two processes are connected by an
+operating-system pipe passed directly to `Popen` (decoder `stdout` as player `stdin`), and their
+lifecycles are managed together (`terminate()` → timeout → `kill()` → `wait()` for both) so that no
+zombies or open pipes/sockets remain when changing stations.
 
-## 1. Estructura del paquete instalado
+## 1. Installed package structure
 
 ```
-/mnt/mmc/Roms/APPS/Radio.sh              # launcher, invoca python3 sobre radio/main.py
+/mnt/mmc/Roms/APPS/Radio.sh              # launcher, invokes python3 on radio/main.py
 /mnt/mmc/Roms/APPS/radio/
-  main.py                                # entrypoint
-  ui/                                    # capa SDL2 + Pillow
-  playlist/                              # parser M3U, modelo de categorías
-  playback/                              # wrapper del motor (subprocess ffmpeg), lifecycle
-  input/                                 # lectura de /dev/input/event1, mapeo de botones
+  main.py                                # entry point
+  ui/                                    # SDL2 + Pillow layer
+  playlist/                              # M3U parser, category model
+  playback/                              # engine wrapper (ffmpeg subprocess), lifecycle
+  input/                                 # reads /dev/input/event1, button mapping
   data/
-    playlist.m3u                         # las 1.041 entradas / 24 grupos
-    favorites.json                       # persistente
-    recent.json                          # persistente
-    config.json                          # config de usuario (volumen, último grupo, etc.)
+    playlist.m3u                         # the 1,041 entries / 24 groups
+    favorites.json                       # persistent
+    recent.json                          # persistent
+    config.json                          # user configuration (volume, last group, etc.)
   engine/
-    ffmpeg-aarch64                       # binario estático bundleado
-  vendor/                                # dependencias Python vendorizadas si no están en el
-                                          # sistema (evitar pip install en el dispositivo)
-  assets/                                # iconos, fuentes para Pillow
+    ffmpeg-aarch64                       # bundled static binary
+  vendor/                                # vendored Python dependencies if unavailable on the
+                                          # system (avoid pip install on the device)
+  assets/                                # icons, Pillow fonts
 ```
 
-Todo lo escribible (favorites.json, recent.json, config.json, logs) vive bajo `radio/data/`, en
-la SD. No se toca nada fuera de este árbol.
+All writable files (favorites.json, recent.json, config.json, logs) live under `radio/data/` on the
+SD card. Nothing outside this tree is touched.
 
-## 2. Fases de trabajo
+## 2. Work phases
 
-### Fase 1 — Fundamentos sin UI
-- Parser M3U extendido: lee `playlist.m3u`, produce lista de entradas
-  `(título, url, grupo, tipo_stream_inferido)`, tolera líneas malformadas (se saltan con log, no
-  abortan). Test unitario contra el archivo real de 1.041 entradas / 24 grupos.
-- Modelo de datos de categorías (24 grupos) y de favoritos/recientes (lectura/escritura JSON en
-  `data/`).
-- Wrapper de reproducción: lanza `ffmpeg-aarch64` (decodificador, sin muxer ALSA) y `aplay`
-  (salida ALSA) como par de subprocesos conectados por pipe de SO, gestiona sus stdout/stderr,
-  expone estados (conectando/reproduciendo/error/detenido), mata ambos procesos de forma
-  limpia (`terminate` + timeout + `kill` si no responden) al cambiar de emisora o salir.
-- Punto de decisión temprano: **[POR VERIFICAR]** confirmar en el dispositivo, con las tres
-  fases de este punto ya construidas pero sin UI (script de línea de comandos mínimo), que se
-  puede: (a) ejecutar el binario ffmpeg estático, (b) que emite audio por ALSA interno, (c) que
-  reproduce correctamente al menos una URL MP3-HTTPS, una AAC-HTTPS y una HLS del playlist real.
-  Este punto de control debe pasar antes de invertir en la capa de UI.
+### Phase 1 — Foundations without a UI
 
-### Fase 2 — Input y ciclo de vida de proceso
-- Lectura de `/dev/input/event1` (vía `python-evdev` vendorizado o parseo directo de la
-  estructura `input_event` con `struct`, para minimizar dependencias externas).
-- Mapeo de botones **[POR VERIFICAR]** contra hardware real antes de fijar constantes.
-- Bucle principal no bloqueante: la lectura de input, el refresco de UI y el polling de estado
-  del subproceso de audio deben convivir en el mismo loop (o en hilos separados con colas
-  thread-safe) sin que la conexión/buffering de un stream congele el redibujado de pantalla ni
-  corte el audio que ya estaba sonando.
-- Pruebas de estrés: cambiar de emisora repetidamente (p. ej. 30 cambios seguidos) verificando
-  que no quedan procesos `ffmpeg` huérfanos ni descriptores de socket abiertos de más
-  (`/proc/<pid>/fd` del proceso principal antes/después).
+- Extended M3U parser: reads `playlist.m3u`, produces a list of
+  `(title, url, group, inferred_stream_type)` entries, and tolerates malformed lines (they are skipped
+  with a log entry; parsing does not abort). Unit test against the real file with 1,041 entries / 24 groups.
+- Data model for categories (24 groups) and favorites/recents (JSON read/write in `data/`).
+- Playback wrapper: launches `ffmpeg-aarch64` (decoder, without ALSA muxer) and `aplay` (ALSA output)
+  as a pair of subprocesses connected by an OS pipe; manages their stdout/stderr; exposes states
+  (connecting/playing/error/stopped); and cleanly kills both processes (`terminate` + timeout + `kill`
+  if they do not respond) when changing stations or exiting.
+- Early decision point: **[TO VERIFY]** on the device, with the first three phases implemented but no UI
+  (a minimal command-line script), confirm that it can: (a) run the static ffmpeg binary, (b) output
+  audio through internal ALSA, and (c) correctly play at least one MP3-HTTPS URL, one AAC-HTTPS URL, and
+  one HLS URL from the real playlist. This checkpoint must pass before investing in the UI layer.
 
-### Fase 3 — UI (PySDL2 + Pillow, 640x480 lógicos)
+### Phase 2 — Input and process lifecycle
 
-640x480 es la resolución lógica objetivo heredada de la referencia del proyecto (ver
-REQUISITOS.md §2), no necesariamente una medida tomada del panel físico del dispositivo; es el
-tamaño sobre el que se construye y prueba `radio/ui/`.
+- Read `/dev/input/event1` (through vendored `python-evdev` or direct parsing of the `input_event`
+  structure with `struct`, to minimize external dependencies).
+- **[TO VERIFY]** button mapping against real hardware before fixing constants.
+- Non-blocking main loop: input reading, UI refresh, and audio-subprocess status polling must coexist in
+  the same loop (or in separate threads with thread-safe queues) without a stream connection/buffer freezing
+  screen redraws or interrupting audio already playing.
+- Stress tests: repeatedly change stations (for example, 30 consecutive changes), checking that no orphaned
+  `ffmpeg` processes or excess open socket descriptors remain (`/proc/<pid>/fd` of the main process before/after).
 
-- Pantalla de categorías (24 grupos).
-- Pantalla de lista de emisoras dentro de un grupo, con scroll.
-- Pantalla "reproduciendo": nombre de emisora, grupo, estado (conectando/en vivo/error),
-  controles de volumen, favorito toggle.
-- Pantalla de favoritos y de recientes.
-- Búsqueda/filtro por nombre — **opcional**, se implementa después de que las pantallas
-  anteriores estén validadas en dispositivo, usando entrada por teclado virtual con D-pad o,
-  si el dispositivo lo permite, texto vía combinación de botones; si el coste de UX es alto para
-  un mando sin teclado, se puede degradar a filtro por prefijo alfabético (saltar a la letra)
-  como default más pragmático.
-- Todo el renderizado se hace en Pillow y se sube a una textura SDL2; el hilo/loop de UI nunca
-  espera de forma síncrona a que el stream conecte (esa espera vive en el wrapper de
-  reproducción, consultado de forma no bloqueante).
+### Phase 3 — UI (PySDL2 + Pillow, logical 640x480)
 
-### Fase 4 — Persistencia y UX de arranque
-- Recordar última categoría/emisora vista (`config.json`).
-- Favoritos y recientes ya cubiertos en Fase 1, aquí se conecta a la UI (toggle de favorito,
-  vista de recientes con límite, p. ej., de 20 entradas, orden más-reciente-primero).
-- Manejo de error de red por entrada individual: si una URL falla, mostrar mensaje claro en
-  pantalla y permitir volver a la lista sin colgar la app; no debe detener la navegación global.
+640x480 is the target logical resolution inherited from the project reference (see REQUISITOS.md §2),
+not necessarily a measurement taken from the device's physical panel; it is the size on which `radio/ui/`
+is built and tested.
 
-### Fase 5 — Empaquetado e instalación
-- Generar `Radio.sh` (shell wrapper mínimo que invoca `python3 radio/main.py` con el `PATH`/
-  `LD_LIBRARY_PATH` apuntando solo a lo bundleado si hiciera falta, para no interferir con el
-  resto del firmware).
-- Verificar permisos de ejecución del `.sh` y del binario `ffmpeg-aarch64` sobreviven una copia
-  típica a SD vía USB/lector (FAT32 no siempre preserva bit ejecutable) — **[POR VERIFICAR]**;
-  si no lo preserva, el propio `Radio.sh` debe hacer `chmod +x` sobre el binario del engine en su
-  primer arranque, ya que eso sí es una escritura permitida dentro de `radio/`.
-- Confirmar convención de icono/nombre que espera el launcher de menú del firmware
-  **[POR VERIFICAR]**.
+- Category screen (24 groups).
+- Station-list screen within a group, with scrolling.
+- "Now Playing" screen: station name, group, state (connecting/live/error), volume controls, favorite toggle.
+- Favorites and recents screens.
+- Name search/filter — **optional**, implemented after the preceding screens are validated on the device,
+  using virtual-keyboard input with the D-pad or, if the device permits it, text through button combinations;
+  if the UX cost is high for a controller without a keyboard, it can be reduced to an alphabetical-prefix
+  filter (jump to a letter) as the more pragmatic default.
+- All rendering is done in Pillow and uploaded to an SDL2 texture; the UI thread/loop never waits
+  synchronously for a stream to connect (that wait lives in the playback wrapper, which is polled non-blockingly).
 
-## 3. Defaults de UX pragmáticos
+### Phase 4 — Persistence and startup UX
 
-- Volumen inicial: nivel medio (p. ej. 60%), ajustable con D-pad izq/der en pantalla de
-  reproducción; se persiste en `config.json`.
-- Al reproducir, timeout de conexión razonable (p. ej. 8–10s) antes de mostrar error, en vez de
-  esperar indefinidamente — cifra exacta a ajustar tras pruebas de latencia real de red del
-  dispositivo **[POR VERIFICAR]**.
-- Recientes limitado a las últimas ~20 emisoras reproducidas, sin duplicados (reproducir de
-  nuevo una ya presente la mueve al tope).
-- Búsqueda por texto es *nice-to-have*; el salto alfabético por letra (mantener pulsado un botón
-  para ciclar A→Z) es el mecanismo por defecto de filtrado rápido, más adecuado a un mando sin
-  teclado físico.
-- Sin pantalla de carga bloqueante: al entrar en "reproduciendo" se muestra la UI de inmediato
-  con estado "conectando…" y el audio arranca en cuanto el subproceso empieza a emitir PCM.
+- Remember the last viewed category/station (`config.json`).
+- Favorites and recents are already covered in Phase 1; here they are connected to the UI (favorite toggle,
+  capped recents view, for example 20 entries, most-recent-first order).
+- Per-entry network-error handling: if a URL fails, show a clear message and allow returning to the list
+  without crashing the app; it must not halt global navigation.
 
-## 4. Plan de pruebas de aceptación (dispositivo real)
+### Phase 5 — Packaging and installation
 
-Todas se ejecutan en el RG35XX H físico, no en desarrollo de escritorio, por las diferencias de
-ABI descritas en REQUISITOS.md §3.
+- Generate `Radio.sh` (minimal shell wrapper that invokes `python3 radio/main.py`, with `PATH`/
+  `LD_LIBRARY_PATH` pointing only to bundled resources if needed, so it does not interfere with the rest
+  of the firmware).
+- Verify that execute permissions for the `.sh` and `ffmpeg-aarch64` binary survive a typical copy to the
+  SD card through USB/card reader (FAT32 does not always preserve the execute bit) — **[TO VERIFY]**; if
+  not, `Radio.sh` itself must run `chmod +x` on the engine binary at first launch, since that is an allowed
+  write within `radio/`.
+- **[TO VERIFY]** the icon/name convention expected by the firmware menu launcher.
 
-1. Reproducción real de una emisora MP3-HTTPS del playlist con audio audible.
-2. Reproducción real de una emisora AAC-HTTPS.
-3. Reproducción real de un stream HLS (`.m3u8`), incluyendo al menos una transición de segmento
-   sin corte audible perceptible.
-4. Reproducción real de un stream Icecast genérico (sin extensión, cabeceras `icy-*`).
-5. Parseo completo del `playlist.m3u`: conteo de 1.041 entradas y 24 grupos coincide con lo
-   esperado.
-6. Cambio de emisora 30 veces seguidas sin procesos `ffmpeg` huérfanos ni fugas de descriptores.
-7. Ciclo favorito: marcar, salir de la app, reabrir, favorito persiste.
-8. Ciclo recientes: reproducir 3 emisoras distintas, verificar orden y persistencia tras
-   reinicio de la app.
-9. UI responsive durante conexión: mientras una emisora está "conectando", la navegación
-   (volver atrás, moverse en la lista) sigue respondiendo sin bloqueo perceptible.
-10. Emisora caída/URL muerta: la app muestra error y permite volver a navegar sin colgarse.
+## 3. Pragmatic UX defaults
 
-## 5. Riesgos y puntos de verificación pendientes (resumen)
+- Initial volume: medium (for example, 60%), adjustable with the left/right D-pad on the playback screen;
+  persisted in `config.json`.
+- During playback, use a reasonable connection timeout (for example, 8–10 s) before showing an error,
+  rather than waiting indefinitely — exact value to be adjusted after real device network-latency testing
+  **[TO VERIFY]**.
+- Recents limited to the last ~20 stations played, without duplicates (playing an existing one again moves it
+  to the top).
+- Text search is a *nice-to-have*; alphabetical letter jumping (hold a button to cycle A→Z) is the default
+  quick-filtering mechanism, better suited to a controller with no physical keyboard.
+- No blocking loading screen: when entering "Now Playing," display the UI immediately with a "connecting…"
+  state, and start audio as soon as the subprocess begins outputting PCM.
 
-- Ejecutabilidad real de un binario AArch64 estático de ffmpeg en el userland del dispositivo
-  (el vendor ffplay tuvo mismatch de ELF; hay que confirmar que un build genérico linux-arm64
-  estático sí corre).
-- Mapeo de códigos de botón de `/dev/input/event1`.
-- Preservación de permisos de ejecución al copiar a la SD vía FAT32.
-- Convención exacta de integración con el menú de launcher del firmware (icono, metadata).
-- Límites reales de RAM/CPU disponibles para la app tras el resto del firmware.
-- Tiempo de arranque y latencia de conexión aceptables en la red real donde se use el
-  dispositivo.
+## 4. Acceptance test plan (real device)
+
+All tests run on the physical RG35XX H, not in desktop development, due to the ABI differences described
+in REQUISITOS.md §3.
+
+1. Actual playback of an MP3-HTTPS station from the playlist, with audible audio.
+2. Actual playback of an AAC-HTTPS station.
+3. Actual playback of an HLS (`.m3u8`) stream, including at least one segment transition without a
+   perceptible audible interruption.
+4. Actual playback of a generic Icecast stream (no extension, `icy-*` headers).
+5. Complete parsing of `playlist.m3u`: the count of 1,041 entries and 24 groups matches expectations.
+6. Change stations 30 consecutive times without orphaned `ffmpeg` processes or descriptor leaks.
+7. Favorite cycle: mark, exit the app, reopen it, and confirm the favorite persists.
+8. Recents cycle: play 3 distinct stations; verify order and persistence after restarting the app.
+9. Responsive UI during connection: while a station is "connecting," navigation (going back, moving through
+   the list) continues to respond without perceptible blocking.
+10. Down station/dead URL: the app shows an error and allows navigation to continue without hanging.
+
+## 5. Risks and outstanding verification points (summary)
+
+- Actual ability to run a static AArch64 ffmpeg binary in the device userland (vendor ffplay had an ELF
+  mismatch; a generic static linux-arm64 build must be confirmed to run).
+- Button-code mapping for `/dev/input/event1`.
+- Preservation of execute permissions when copying to the SD card through FAT32.
+- Exact firmware launcher-menu integration convention (icon, metadata).
+- Actual RAM/CPU limits available to the app after the rest of the firmware.
+- Acceptable startup time and connection latency on the actual network where the device is used.

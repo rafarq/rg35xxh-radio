@@ -2,128 +2,117 @@
 
 ![RG35XX H Radio logo](assets/Radio-transparent.png)
 
-Aplicación de radio por Internet para la consola **Anbernic RG35XX H** con
-**MuOS**. Navega una lista M3U incluida, reproduce emisoras y conserva
-favoritos, recientes y la configuración en la tarjeta SD.
+Internet radio application for the **Anbernic RG35XX H** console running
+**MuOS**. Browse the included M3U playlist, play stations, and keep favorites,
+recent stations, and configuration on the SD card.
 
-## Instalación en MuOS
+## Installation on MuOS
 
-Copie los archivos del proyecto a la tarjeta SD respetando esta estructura:
+Copy the project files to the SD card using this structure:
 
 ```text
 /mnt/mmc/Roms/APPS/Radio.sh
 /mnt/mmc/Roms/APPS/radio/
 ```
 
-En otras palabras, copie `Radio.sh` a `Roms/APPS/` y copie el directorio
-`radio/` completo a `Roms/APPS/radio/`. Para el icono del menú, copie el PNG
-correspondiente como `Roms/APPS/Imgs/Radio.png`. La aplicación se ejecuta desde
-el menú de APPS de MuOS.
+In other words, copy `Radio.sh` to `Roms/APPS/` and the complete `radio/`
+directory to `Roms/APPS/radio/`. For the menu icon, copy the corresponding PNG
+as `Roms/APPS/Imgs/Radio.png`. Launch the application from the MuOS APPS menu.
 
-El paquete de instalación debe incluir también el motor de audio AArch64 en
-`radio/engine/ffmpeg-aarch64`; ese binario no está en este repositorio. Consulte
-[Arquitectura](#arquitectura) y [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The installation package must also include the AArch64 audio engine at
+`radio/engine/ffmpeg-aarch64`; that binary is not included in this repository.
+See [Architecture](#architecture) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Controles
+## Controls
 
-| Control | Acción |
+| Control | Action |
 | --- | --- |
-| D-pad | Mover el cursor o la selección |
-| A | Abrir, seleccionar o reproducir; reintentar tras un error |
-| B | Volver; en reproducción, detener y volver |
-| SELECT | Volver a Inicio |
-| X | Reproducir desde una lista; pausar o reanudar durante la escucha |
-| START | Añadir o quitar favoritos |
-| L1 / R1 | Categoría anterior / siguiente |
-| VOL− / VOL+ | Ajustar el volumen del mezclador ALSA |
-| MENU | Salir limpiamente |
+| D-pad | Move the cursor or selection |
+| A | Open, select, or play; retry after an error |
+| B | Go back; while playing, stop and go back |
+| SELECT | Return to Home |
+| X | Play from a list; pause or resume while listening |
+| START | Add or remove favorites |
+| L1 / R1 | Previous / next category |
+| VOL− / VOL+ | Adjust ALSA mixer volume |
+| MENU | Exit cleanly |
 
-## Emisoras y listas
+## Stations and playlists
 
-La lista incluida contiene emisoras MP3 y AAC, streams HLS (`.m3u8`) y streams
-Icecast genéricos. La disponibilidad de una emisora concreta depende de su
-servidor remoto.
+The included playlist contains MP3 and AAC stations, HLS (`.m3u8`) streams,
+and generic Icecast streams. Availability of a particular station depends on
+its remote server.
 
-Puede añadir listas Extended M3U locales (`.m3u` o `.m3u8`) en:
+You can add local Extended M3U playlists (`.m3u` or `.m3u8`) in:
 
 ```text
 /mnt/mmc/Roms/APPS/radio/playlists/
 ```
 
-Para listas remotas, añada una URL completa `http://` o `https://` por línea en:
+For remote playlists, add one complete `http://` or `https://` URL per line in:
 
 ```text
 /mnt/mmc/Roms/APPS/radio/playlists/playlist_urls.txt
 ```
 
-Se permiten líneas vacías y comentarios que comiencen por `#`; otros esquemas
-se ignoran. Después, en la consola abra **Settings → Playlists**, elija el
-archivo local o la URL y confirme con **A**. La selección se guarda en la
-configuración de la aplicación.
+Blank lines and comments beginning with `#` are allowed; other schemes are
+ignored. Then, on the console, open **Settings → Playlists**, choose the local
+file or URL, and confirm with **A**. The selection is saved in the application
+configuration.
 
-Las descargas remotas se realizan con verificación normal de certificado y
-hostname HTTPS y tienen un límite de 2 MiB. Cada descarga válida se guarda en
-caché; si la actualización posterior falla, se usa esa copia. Sin una caché
-válida —o si una lista local no existe, está vacía o no es válida— Radio vuelve
-de forma segura a la lista incluida.
+Remote downloads use normal HTTPS certificate and hostname verification and
+are limited to 2 MiB. Each valid download is cached; if a later refresh fails,
+that copy is used. Without a valid cache—or if a local playlist does not exist,
+is empty, or is invalid—Radio safely falls back to the included playlist.
 
-## Arquitectura
+## Architecture
 
-La interfaz está escrita en Python y usa SDL2/Pillow en el dispositivo. El
-parser M3U, la gestión de listas, el estado de la app y la persistencia están
-separados de la capa de interfaz para poder probarlos en escritorio.
+The interface is written in Python and uses SDL2/Pillow on the device. The M3U
+parser, playlist management, application state, and persistence are separated
+from the interface layer so they can be tested on a desktop system.
 
-La reproducción conecta un decodificador `ffmpeg-aarch64` estático con
-`/usr/bin/aplay`: FFmpeg convierte el stream en PCM y `aplay` lo entrega a
-ALSA. El bundle de CA `radio/assets/cacert.pem` se asigna mediante
-`SSL_CERT_FILE` al decodificador para verificar HTTPS sin depender del almacén
-TLS del firmware.
+Playback connects a static `ffmpeg-aarch64` decoder to `/usr/bin/aplay`:
+FFmpeg converts the stream to PCM, and `aplay` sends it to ALSA. The CA bundle
+at `radio/assets/cacert.pem` is supplied to the decoder through
+`SSL_CERT_FILE` to verify HTTPS without relying on the firmware TLS store.
 
-El binario `radio/engine/ffmpeg-aarch64` se excluye intencionadamente de Git y
-debe obtenerse e incorporarse por separado al artefacto de instalación. Al
-distribuirlo, deben cumplirse las obligaciones de licencia y disponibilidad de
-código fuente de la compilación concreta; vea
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) y
+The `radio/engine/ffmpeg-aarch64` binary is intentionally excluded from Git
+and must be obtained separately and included in the installation artifact.
+When distributing it, the licensing and source-code availability obligations
+for the specific build must be met; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
 [radio/engine/README.md](radio/engine/README.md).
 
-## Desarrollo y pruebas
+## Development and testing
 
-Se requiere Python 3.10 o posterior. Desde la raíz del repositorio:
+Python 3.10 or later is required. From the repository root:
 
 ```sh
 uv run --with pytest python -m pytest -q
 uv run python -m radio.smoke
 ```
 
-La interfaz completa requiere el hardware/firmware objetivo, PySDL2, Pillow,
-ALSA, `/dev/input/event1` y el binario externo de FFmpeg. Las pruebas y el
-smoke test no requieren SDL2 ni una pantalla.
+The full interface requires the target hardware/firmware, PySDL2, Pillow,
+ALSA, `/dev/input/event1`, and the external FFmpeg binary. The tests and smoke
+test do not require SDL2 or a display.
 
-## Límites de seguridad
+## Security limitations
 
-Radio solo acepta URLs de listas HTTP(S), conserva la verificación HTTPS y no
-ejecuta listas ni URLs mediante una shell. Las entradas M3U se tratan como datos
-no confiables y las entradas malformadas se omiten. La caché y la persistencia
-se mantienen dentro del árbol de la aplicación en la SD. Estas medidas no hacen
-confiables a los streams de terceros: use únicamente listas y emisoras en las
-que confíe.
+Radio accepts only HTTP(S) playlist URLs, retains HTTPS verification, and does
+not execute playlists or URLs through a shell. M3U entries are treated as
+untrusted data, and malformed entries are skipped. Cache and persistence stay
+within the application tree on the SD card. These measures do not make
+third-party streams trustworthy: use only playlists and stations you trust.
 
-Las vulnerabilidades deben comunicarse de forma responsable según
+Vulnerabilities should be reported responsibly as described in
 [SECURITY.md](SECURITY.md).
 
-## English quick start
-
-Copy `Radio.sh` to `Roms/APPS/` and the complete `radio/` directory to
-`Roms/APPS/radio/` on the MuOS SD card. Supply the separately obtained
-`radio/engine/ffmpeg-aarch64` binary. Local M3U files go in
-`radio/playlists/`; remote HTTP(S) URLs go one per line in
-`radio/playlists/playlist_urls.txt`; select them in **Settings → Playlists**.
-
-## Créditos / Autor
+## Credits / Author
 
 Rafael Roa
 
-Technical Architect & CTO building where architecture, code and AI meet.
+Technical Architect & CTO building at the intersection of architecture, code,
+and AI.
 
 - Website: https://rafarq.com
 - GitHub: https://github.com/rafarq
@@ -132,4 +121,4 @@ Technical Architect & CTO building where architecture, code and AI meet.
 - Threads: https://www.threads.net/@r4f4r04
 - Mastodon: https://mastodon.cloud/@rafarq
 
-Licencia: [MIT](LICENSE).
+License: [MIT](LICENSE).
