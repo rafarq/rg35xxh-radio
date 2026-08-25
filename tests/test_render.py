@@ -131,6 +131,50 @@ def test_home_dashboard_is_a_complete_640x480_four_card_layout(monkeypatch):
     assert {"2", "3", "1", "English"} <= set(labels)
 
 
+def test_home_dashboard_uses_compact_cards_and_supersampled_icons(monkeypatch):
+    """Home icons are composited from a high-resolution vector layer."""
+    app = _home_app()
+
+    def old_direct_path(*args, **kwargs):
+        raise AssertionError("Home must not draw legacy icons directly on the frame")
+
+    monkeypatch.setattr(render, "_draw_star_icon", old_direct_path)
+    monkeypatch.setattr(render, "_draw_grid_icon", old_direct_path)
+    monkeypatch.setattr(render, "_draw_clock_icon", old_direct_path)
+    monkeypatch.setattr(render, "_draw_gear_icon", old_direct_path)
+
+    frame = render.render_home(app)
+
+    assert frame.mode == "RGB"
+    assert frame.size == (640, 480)
+    assert 230 <= render.CARD_HEIGHT <= 240
+    assert len(render._home_card_specs(app)) == 4
+    assert render.CARD_TOP + render.CARD_HEIGHT < render.HEIGHT - 48
+
+    start_x = (render.WIDTH - (
+        render.CARD_COUNT * render.CARD_WIDTH + (render.CARD_COUNT - 1) * render.CARD_GAP
+    )) // 2
+    icon_cx = start_x + render.CARD_WIDTH // 2
+    icon_cy = render.CARD_TOP + render.ICON_TOP_MARGIN + render.ICON_SIZE // 2
+    icon_box = (
+        icon_cx - render.ICON_SIZE // 2 - 2,
+        icon_cy - render.ICON_SIZE // 2 - 2,
+        icon_cx + render.ICON_SIZE // 2 + 3,
+        icon_cy + render.ICON_SIZE // 2 + 3,
+    )
+    icon_pixels = [
+        frame.getpixel((x, y))
+        for x in range(icon_box[0], icon_box[2])
+        for y in range(icon_box[1], icon_box[3])
+    ]
+    assert any(
+        pixel not in {render.CARD_BG, render.FAVORITE_COLOR}
+        and pixel[0] > render.CARD_BG[0]
+        and pixel[0] < render.FAVORITE_COLOR[0]
+        for pixel in icon_pixels
+    )
+
+
 def test_home_selected_card_uses_gold_border_and_glow():
     app = _home_app(home_index=1)
     frame = render.render_home(app)

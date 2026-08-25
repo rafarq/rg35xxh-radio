@@ -49,12 +49,15 @@ VISIBLE_ROWS = (HEIGHT - LIST_TOP - FOOTER_HEIGHT) // ROW_HEIGHT
 # Settings), sized to fit the 640x480 screen with margin either side.
 CARD_COUNT = 4
 CARD_WIDTH = 136
-CARD_HEIGHT = 280
+CARD_HEIGHT = 236
 CARD_GAP = 16
 CARD_TOP = 88
 CARD_RADIUS = 18
 ICON_TOP_MARGIN = 30
 ICON_SIZE = 64
+HOME_ICON_SCALE = 4
+HOME_ICON_PADDING = 4
+RESAMPLE_LANCZOS = getattr(Image, "Resampling", Image).LANCZOS
 HOME_SELECTED_BORDER = (244, 197, 66)
 HOME_SELECTED_GLOW = (78, 62, 29)
 HOME_CARD_INNER = (31, 36, 48)
@@ -217,7 +220,7 @@ def _draw_footer(draw: ImageDraw.ImageDraw, hint: str, rtl: bool = False) -> Non
         draw.text((16, HEIGHT - FOOTER_HEIGHT + 6), hint, fill=DIM_COLOR, font=font)
 
 
-def _draw_star_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+def _draw_star_icon_vector(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
     """5-point star, vector-drawn (no external icon assets)."""
     outer_r = size / 2
     inner_r = outer_r * 0.42
@@ -229,7 +232,7 @@ def _draw_star_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, colo
     draw.polygon(points, fill=color)
 
 
-def _draw_grid_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+def _draw_grid_icon_vector(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
     """2x2 rounded-square grid, standing in for a categories/folder icon."""
     cell = size * 0.42
     gap = size * 0.16
@@ -242,7 +245,7 @@ def _draw_grid_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, colo
             )
 
 
-def _draw_clock_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+def _draw_clock_icon_vector(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
     """Clock face with hour/minute hands, standing in for a history icon."""
     radius = size / 2
     draw.ellipse(
@@ -252,7 +255,9 @@ def _draw_clock_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, col
     draw.line([(cx, cy), (cx + radius * 0.4, cy)], fill=color, width=5)
 
 
-def _draw_gear_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+def _draw_gear_icon_vector(
+    draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color, hub_fill=(0, 0, 0, 0)
+) -> None:
     """Vector gear/cog icon, standing in for a settings icon."""
     outer_r = size / 2
     inner_r = outer_r * 0.62
@@ -268,9 +273,46 @@ def _draw_gear_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, colo
         points.append((cx + inner_r * math.cos(center_angle + half_tooth), cy + inner_r * math.sin(center_angle + half_tooth)))
         points.append((cx + inner_r * math.cos(next_angle), cy + inner_r * math.sin(next_angle)))
     draw.polygon(points, fill=color)
-    draw.ellipse(
-        [(cx - hub_r, cy - hub_r), (cx + hub_r, cy + hub_r)], fill=BG_COLOR
-    )
+    draw.ellipse([(cx - hub_r, cy - hub_r), (cx + hub_r, cy + hub_r)], fill=hub_fill)
+
+
+# Retained for callers outside the Home compositor.  Home itself renders the
+# vector forms into a larger transparent layer before reducing them.
+def _draw_star_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+    _draw_star_icon_vector(draw, cx, cy, size, color)
+
+
+def _draw_grid_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+    _draw_grid_icon_vector(draw, cx, cy, size, color)
+
+
+def _draw_clock_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+    _draw_clock_icon_vector(draw, cx, cy, size, color)
+
+
+def _draw_gear_icon(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int, color) -> None:
+    _draw_gear_icon_vector(draw, cx, cy, size, color, hub_fill=BG_COLOR)
+
+
+_HOME_ICON_VECTORS = {
+    "favorites": _draw_star_icon_vector,
+    "categories": _draw_grid_icon_vector,
+    "recents": _draw_clock_icon_vector,
+    "settings": _draw_gear_icon_vector,
+}
+
+
+def _draw_home_icon(frame: Image.Image, name: str, cx: int, cy: int, size: int, color) -> None:
+    """Composite a supersampled vector icon onto the RGB Home frame."""
+    scale = HOME_ICON_SCALE
+    padding = HOME_ICON_PADDING
+    layer_size = (size + padding * 2) * scale
+    layer = Image.new("RGBA", (layer_size, layer_size), (0, 0, 0, 0))
+    vector = _HOME_ICON_VECTORS[name]
+    center = layer_size // 2
+    vector(ImageDraw.Draw(layer), center, center, size * scale, color)
+    icon = layer.resize((size + padding * 2, size + padding * 2), RESAMPLE_LANCZOS)
+    frame.paste(icon, (cx - size // 2 - padding, cy - size // 2 - padding), icon)
 
 
 def _text_center(draw: ImageDraw.ImageDraw, cx: int, y: int, text: str, font, fill) -> None:
@@ -281,10 +323,10 @@ def _text_center(draw: ImageDraw.ImageDraw, cx: int, y: int, text: str, font, fi
 
 def _home_card_specs(app: RadioApp):
     return (
-        ("favorites", app.t("home_card_favorites"), app.t("home_card_favorites_description"), _draw_star_icon, FAVORITE_COLOR, f"{len(app.favorites)}"),
-        ("categories", app.t("home_card_categories"), app.t("home_card_categories_description"), _draw_grid_icon, ACCENT_COLOR, f"{len(app.groups)}"),
-        ("recents", app.t("home_card_recents"), app.t("home_card_recents_description"), _draw_clock_icon, ACCENT_COLOR, f"{len(app.recents)}"),
-        ("settings", app.t("home_card_settings"), app.t("home_card_settings_description"), _draw_gear_icon, ACCENT_COLOR, SUPPORTED_LANGUAGES.get(app.language, "")),
+        ("favorites", app.t("home_card_favorites"), app.t("home_card_favorites_description"), FAVORITE_COLOR, f"{len(app.favorites)}"),
+        ("categories", app.t("home_card_categories"), app.t("home_card_categories_description"), ACCENT_COLOR, f"{len(app.groups)}"),
+        ("recents", app.t("home_card_recents"), app.t("home_card_recents_description"), ACCENT_COLOR, f"{len(app.recents)}"),
+        ("settings", app.t("home_card_settings"), app.t("home_card_settings_description"), ACCENT_COLOR, SUPPORTED_LANGUAGES.get(app.language, "")),
     )
 
 
@@ -354,7 +396,7 @@ def render_home(app: RadioApp) -> Image.Image:
     total_width = CARD_COUNT * CARD_WIDTH + (CARD_COUNT - 1) * CARD_GAP
     start_x = (WIDTH - total_width) // 2
 
-    for index, (name, label, description, icon_fn, color, count_text) in enumerate(specs):
+    for index, (name, label, description, color, count_text) in enumerate(specs):
         x0 = start_x + index * (CARD_WIDTH + CARD_GAP)
         y0 = CARD_TOP
         x1 = x0 + CARD_WIDTH
@@ -374,7 +416,7 @@ def render_home(app: RadioApp) -> Image.Image:
 
         cx = (x0 + x1) // 2
         icon_cy = y0 + ICON_TOP_MARGIN + ICON_SIZE // 2
-        icon_fn(draw, cx, icon_cy, ICON_SIZE, color)
+        _draw_home_icon(frame, name, cx, icon_cy, ICON_SIZE, color)
 
         label_color = HOME_SELECTED_BORDER if is_selected else FG_COLOR
         _text_center(draw, cx, icon_cy + ICON_SIZE // 2 + 20, label, _font(16), label_color)
