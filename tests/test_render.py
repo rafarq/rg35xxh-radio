@@ -1,9 +1,11 @@
+import os
+
 import pytest
 from types import SimpleNamespace
 
 PIL = pytest.importorskip("PIL")
 
-from PIL import ImageFont
+from PIL import Image, ImageFont
 
 from radio.ui import render
 from radio.i18n import t
@@ -16,6 +18,13 @@ def clear_font_cache():
     render._font_cache.clear()
     yield
     render._font_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def clear_icon_asset_cache():
+    render._icon_asset_cache.clear()
+    yield
+    render._icon_asset_cache.clear()
 
 
 def test_font_uses_system_truetype_when_available(monkeypatch, tmp_path):
@@ -202,6 +211,126 @@ def test_home_localizes_descriptions_and_renders_rtl_without_overflow(monkeypatc
         "home_card_favorites_description", "home_card_categories_description",
         "home_card_recents_description", "home_card_settings_description",
     ))
+    assert render._is_rtl(language) is (language == "ar")
+
+
+def test_home_icons_are_real_png_assets_bundled_in_the_repo():
+    """The four Home icon assets ship inside the repo, resolved relative to
+    this module file (not the process cwd), so they work whether radio is
+    imported from source or from a packaged /mnt/mmc/Roms/APPS/radio copy."""
+    expected_dir = os.path.join(os.path.dirname(render.__file__), "..", "assets", "icons")
+    assert os.path.normpath(render.ICONS_DIR) == os.path.normpath(expected_dir)
+    for name, filename in render.HOME_ICON_FILENAMES.items():
+        path = os.path.join(render.ICONS_DIR, filename)
+        assert os.path.isfile(path), f"missing bundled icon asset for {name!r}: {path}"
+
+
+def test_render_home_loads_and_composites_the_actual_png_files_by_name(monkeypatch):
+    app = _home_app()
+    opened = []
+    real_open = Image.open
+
+    def spy_open(path, *args, **kwargs):
+        opened.append(os.path.normpath(str(path)))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Image, "open", spy_open)
+
+    render.render_home(app)
+
+    expected_paths = {
+        os.path.normpath(os.path.join(render.ICONS_DIR, filename))
+        for filename in render.HOME_ICON_FILENAMES.values()
+    }
+    assert expected_paths <= set(opened)
+
+
+def test_render_home_icon_loader_is_cached_across_calls(monkeypatch):
+    app = _home_app()
+    opened = []
+    real_open = Image.open
+
+    def spy_open(path, *args, **kwargs):
+        opened.append(path)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Image, "open", spy_open)
+
+    render.render_home(app)
+    render.render_home(app)
+    render.render_home(_home_app(home_index=2))
+
+    # Exactly one Image.open call per icon file, no matter how many times
+    # render_home runs.
+    assert len(opened) == len(render.HOME_ICON_FILENAMES)
+
+
+def test_render_home_falls_back_to_vector_icon_when_asset_missing_or_corrupt(monkeypatch, tmp_path):
+    (tmp_path / "favorites.png").write_bytes(b"not a real png")
+    # categories.png, recents.png, settings.png intentionally absent (missing file).
+    monkeypatch.setattr(render, "ICONS_DIR", str(tmp_path))
+
+    fallback_calls = []
+    real_vector = render._draw_home_icon_vector
+
+    def spy_vector(frame, name, cx, cy, size, color):
+        fallback_calls.append(name)
+        return real_vector(frame, name, cx, cy, size, color)
+
+    monkeypatch.setattr(render, "_draw_home_icon_vector", spy_vector)
+
+    app = _home_app()
+    frame = render.render_home(app)
+
+    assert frame.size == (640, 480)
+    assert set(fallback_calls) == set(render.HOME_ICON_FILENAMES)
+
+
+def test_render_home_icons_stay_roughly_centered_in_icon_region_and_frame_is_exact_size():
+    app = _home_app()
+    frame = render.render_home(app)
+
+    assert frame.size == (640, 480)
+
+    start_x = (render.WIDTH - (
+        render.CARD_COUNT * render.CARD_WIDTH + (render.CARD_COUNT - 1) * render.CARD_GAP
+    )) // 2
+
+    for index in range(render.CARD_COUNT):
+        cx = start_x + index * (render.CARD_WIDTH + render.CARD_GAP) + render.CARD_WIDTH // 2
+        cy = render.CARD_TOP + render.ICON_TOP_MARGIN + render.ICON_SIZE // 2
+        half = render.ICON_SIZE // 2
+        region = [
+            frame.getpixel((x, y))
+            for x in range(cx - half, cx + half)
+            for y in range(cy - half, cy + half)
+        ]
+        # The icon region must not be flat/empty background: some pixel in
+        # the centered box differs from the plain card background.
+        assert any(pixel != render.CARD_BG for pixel in region)
+
+
+@pytest.mark.parametrize("language", ["es", "ar"])
+def test_home_png_icons_unaffected_by_locale_or_rtl(monkeypatch, language):
+    """Icon *loading* is locale-independent; only text layout changes for RTL."""
+    app = _home_app(language=language, home_index=1)
+    opened = []
+    real_open = Image.open
+
+    def spy_open(path, *args, **kwargs):
+        opened.append(os.path.normpath(str(path)))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Image, "open", spy_open)
+
+    frame = render.render_home(app)
+
+    assert frame.size == (640, 480)
+    expected_paths = {
+        os.path.normpath(os.path.join(render.ICONS_DIR, filename))
+        for filename in render.HOME_ICON_FILENAMES.values()
+    }
+    assert expected_paths <= set(opened)
     assert render._is_rtl(language) is (language == "ar")
 
 

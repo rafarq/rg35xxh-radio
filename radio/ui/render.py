@@ -302,8 +302,45 @@ _HOME_ICON_VECTORS = {
 }
 
 
-def _draw_home_icon(frame: Image.Image, name: str, cx: int, cy: int, size: int, color) -> None:
-    """Composite a supersampled vector icon onto the RGB Home frame."""
+# Bundled Home icon assets: PNGs with baked-in color and a transparent
+# background, resolved relative to this module file (not the process cwd)
+# so they load whether radio runs from source or from the packaged
+# /mnt/mmc/Roms/APPS/radio directory on device.
+ICONS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "icons")
+HOME_ICON_FILENAMES = {
+    "favorites": "favorites.png",
+    "categories": "categories.png",
+    "recents": "recents.png",
+    "settings": "settings.png",
+}
+
+# Cache of loaded icon assets, keyed by card name. A missing/corrupt file is
+# cached as None so the failed open is not retried on every render_home call.
+_icon_asset_cache: dict = {}
+
+
+def _load_home_icon_asset(name: str):
+    if name in _icon_asset_cache:
+        return _icon_asset_cache[name]
+    image = None
+    filename = HOME_ICON_FILENAMES.get(name)
+    if filename:
+        path = os.path.join(ICONS_DIR, filename)
+        try:
+            with Image.open(path) as source:
+                image = source.convert("RGBA")
+        except (OSError, ValueError):
+            image = None
+    _icon_asset_cache[name] = image
+    return image
+
+
+def _draw_home_icon_vector(frame: Image.Image, name: str, cx: int, cy: int, size: int, color) -> None:
+    """Composite a supersampled vector icon onto the RGB Home frame.
+
+    Fallback path, used when the bundled PNG asset for ``name`` is missing
+    or fails to load.
+    """
     scale = HOME_ICON_SCALE
     padding = HOME_ICON_PADDING
     layer_size = (size + padding * 2) * scale
@@ -313,6 +350,22 @@ def _draw_home_icon(frame: Image.Image, name: str, cx: int, cy: int, size: int, 
     vector(ImageDraw.Draw(layer), center, center, size * scale, color)
     icon = layer.resize((size + padding * 2, size + padding * 2), RESAMPLE_LANCZOS)
     frame.paste(icon, (cx - size // 2 - padding, cy - size // 2 - padding), icon)
+
+
+def _draw_home_icon(frame: Image.Image, name: str, cx: int, cy: int, size: int, color) -> None:
+    """Composite the bundled PNG icon onto the RGB Home frame, falling back
+    to the vector icon draw function if the asset is missing or corrupt."""
+    asset = _load_home_icon_asset(name)
+    if asset is None:
+        _draw_home_icon_vector(frame, name, cx, cy, size, color)
+        return
+    padding = HOME_ICON_PADDING
+    box = size + padding * 2
+    icon = asset.copy()
+    icon.thumbnail((box, box), RESAMPLE_LANCZOS)
+    paste_x = cx - icon.width // 2
+    paste_y = cy - icon.height // 2
+    frame.paste(icon, (paste_x, paste_y), icon)
 
 
 def _text_center(draw: ImageDraw.ImageDraw, cx: int, y: int, text: str, font, fill) -> None:
